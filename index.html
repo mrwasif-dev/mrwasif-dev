@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WhatsApp Login System</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background: #25D366;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .container {
+            background: white;
+            padding: 30px 20px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            width: 90%;
+            max-width: 400px;
+            text-align: center;
+        }
+        
+        h2 {
+            color: #075E54;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+        
+        .screen {
+            transition: all 0.3s ease;
+        }
+        
+        input {
+            width: 100%;
+            padding: 15px;
+            margin: 10px 0;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            font-size: 16px;
+            outline: none;
+        }
+        
+        input:focus {
+            border-color: #25D366;
+        }
+        
+        button {
+            background: #25D366;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 10px 5px;
+            transition: 0.3s;
+            width: 100%;
+        }
+        
+        button:hover {
+            background: #075E54;
+            transform: scale(1.02);
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .btn-group button {
+            flex: 1;
+            background: #075E54;
+        }
+        
+        .btn-group button:hover {
+            background: #128C7E;
+        }
+        
+        .success-message {
+            color: #25D366;
+            font-size: 20px;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container" id="app">
+    <!-- Screen 1: Ask Name -->
+    <div id="screen1" class="screen">
+        <h2>👋 Welcome!</h2>
+        <p style="margin-bottom: 20px; color: #666;">Please enter your name</p>
+        <input type="text" id="nameInput" placeholder="Your name" autocomplete="off">
+        <button onclick="goToScreen2()">Next →</button>
+    </div>
+
+    <!-- Screen 2: Ask WhatsApp Number -->
+    <div id="screen2" class="screen hidden">
+        <h2 id="greeting"></h2>
+        <p style="margin-bottom: 20px; color: #666;">Enter your WhatsApp number</p>
+        <input type="tel" id="phoneInput" placeholder="03001234567" autocomplete="off">
+        <button onclick="sendOTP()">Send OTP →</button>
+    </div>
+
+    <!-- Screen 3: OTP Verification -->
+    <div id="screen3" class="screen hidden">
+        <h2>🔐 Verify OTP</h2>
+        <p style="margin-bottom: 20px; color: #666;">Enter OTP sent via WhatsApp</p>
+        <input type="number" id="otpInput" placeholder="6-digit OTP" autocomplete="off">
+        <button onclick="verifyOTP()">Verify →</button>
+        <p style="margin-top: 15px; font-size: 14px; color: #999;">OTP: 123456 (for demo)</p>
+    </div>
+
+    <!-- Screen 4: Success Screen -->
+    <div id="screen4" class="screen hidden">
+        <div class="success-message">✅ Success!</div>
+        <h2>Account Created Successfully!</h2>
+        <p style="margin: 20px 0; color: #666;">Your WhatsApp login is complete</p>
+        
+        <div class="btn-group">
+            <button onclick="contactOwner()">📞 Contact Owner</button>
+            <button onclick="goToBoard()">📋 Board Deploy</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Store user data
+    let userName = '';
+    let userPhone = '';
+    let generatedOTP = '123456'; // Demo OTP
+
+    // Screen 1 → Screen 2
+    function goToScreen2() {
+        const name = document.getElementById('nameInput').value.trim();
+        if (name === '') {
+            alert('Please enter your name');
+            return;
+        }
+        
+        userName = name;
+        document.getElementById('screen1').classList.add('hidden');
+        document.getElementById('greeting').innerText = `Hi ${userName}!`;
+        document.getElementById('screen2').classList.remove('hidden');
+    }
+
+    // Screen 2 → Screen 3 (Send OTP)
+    function sendOTP() {
+        const phone = document.getElementById('phoneInput').value.trim();
+        if (phone === '') {
+            alert('Please enter your WhatsApp number');
+            return;
+        }
+        
+        if (phone.length < 10) {
+            alert('Please enter a valid number');
+            return;
+        }
+        
+        userPhone = phone;
+        
+        // Demo: Show OTP in alert (in real app, send via WhatsApp)
+        alert(`OTP 123456 sent to ${phone} via WhatsApp (demo)`);
+        
+        document.getElementById('screen2').classList.add('hidden');
+        document.getElementById('screen3').classList.remove('hidden');
+    }
+
+    // Screen 3 → Screen 4 (Verify OTP)
+    function verifyOTP() {
+        const otp = document.getElementById('otpInput').value.trim();
+        
+        if (otp === '') {
+            alert('Please enter OTP');
+            return;
+        }
+        
+        if (otp === generatedOTP) {
+            document.getElementById('screen3').classList.add('hidden');
+            document.getElementById('screen4').classList.remove('hidden');
+        } else {
+            alert('Invalid OTP. Try 123456');
+        }
+    }
+
+    // Contact Owner button
+    function contactOwner() {
+        const ownerNumber = '923039107958'; // Without 0 at start
+        window.open(`https://wa.me/${ownerNumber}`, '_blank');
+    }
+
+    // Board Deploy button
+    function goToBoard() {
+        window.open('https://google.com', '_blank');
+    }
+</script>
+
+</body>
+</html>
