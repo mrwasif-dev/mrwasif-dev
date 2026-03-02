@@ -5,6 +5,7 @@ const cors = require('cors');
 const qrcode = require('qrcode-terminal');
 const pino = require('pino');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,24 +13,33 @@ const PORT = process.env.PORT || 3000;
 // ================ MIDDLEWARE ================
 app.use(cors({ origin: '*' }));
 app.use(express.json());
-app.use(express.static('public')); // HTML files yahan se serve hongi
+app.use(express.static('public'));
 
 // ================ STORES ================
 const otpStore = new Map();
 let sock = null;
 let isConnected = false;
 let currentQR = null;
+let reconnectAttempts = 0;
+
+// ================ SESSIONS FOLDER ================
+const SESSION_DIR = './sessions';
+if (!fs.existsSync(SESSION_DIR)) {
+    fs.mkdirSync(SESSION_DIR, { recursive: true });
+}
 
 // ================ WHATSAPP CLIENT ================
 async function connectWhatsApp() {
     try {
-        const { state, saveCreds } = await useMultiFileAuthState('./sessions');
+        console.log('🔄 Starting WhatsApp connection...');
+        
+        const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
         
         sock = makeWASocket({
             auth: state,
             logger: pino({ level: 'silent' }),
             printQRInTerminal: true,
-            browser: ['OTP API', 'Chrome', '1.0.0']
+            browser: ['OTP System', 'Chrome', '1.0.0']
         });
 
         sock.ev.on('creds.update', saveCreds);
@@ -39,15 +49,19 @@ async function connectWhatsApp() {
             
             if (qr) {
                 currentQR = qr;
-                console.log('\n📱 SCAN QR CODE:\n');
+                reconnectAttempts = 0;
+                console.log('\n📱 ========== SCAN THIS QR CODE ==========\n');
                 qrcode.generate(qr, { small: true });
-                console.log('\n');
+                console.log('\n📱 ======================================\n');
+                console.log('👉 Open WhatsApp > Linked Devices > Scan QR\n');
             }
 
             if (connection === 'open') {
                 isConnected = true;
                 currentQR = null;
-                console.log('✅ WhatsApp Connected!');
+                reconnectAttempts = 0;
+                console.log('✅ WhatsApp Connected Successfully!');
+                console.log('🚀 OTP System is ready to use');
             }
 
             if (connection === 'close') {
@@ -57,8 +71,12 @@ async function connectWhatsApp() {
                     : true;
                 
                 if (shouldReconnect) {
-                    console.log('🔄 Reconnecting...');
-                    setTimeout(connectWhatsApp, 3000);
+                    reconnectAttempts++;
+                    const delay = Math.min(1000 * reconnectAttempts, 30000);
+                    console.log(`❌ Disconnected. Reconnecting in ${delay/1000}s... (Attempt ${reconnectAttempts})`);
+                    setTimeout(connectWhatsApp, delay);
+                } else {
+                    console.log('❌ Logged out. Delete sessions folder and redeploy.');
                 }
             }
         });
@@ -69,6 +87,7 @@ async function connectWhatsApp() {
     }
 }
 
+// Start WhatsApp
 connectWhatsApp();
 
 // ================ OTP FUNCTIONS ================
@@ -96,7 +115,10 @@ app.post('/api/send-otp', async (req, res) => {
         }
 
         if (!isConnected || !sock) {
-            return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+            return res.status(503).json({ 
+                success: false, 
+                error: 'WhatsApp not connected. Scan QR first.' 
+            });
         }
 
         const otp = generateOTP();
@@ -109,13 +131,14 @@ app.post('/api/send-otp', async (req, res) => {
 
         const jid = `${phone}@s.whatsapp.net`;
         await sock.sendMessage(jid, { 
-            text: `🔐 *${name || 'User'}*, your OTP is: *${otp}*\nValid for 5 minutes.` 
+            text: `🔐 *${name || 'User'}*, your verification code is: *${otp}*\n\nValid for 5 minutes.` 
         });
 
         console.log(`✅ OTP sent to ${phone.substring(0,4)}****${phone.substring(phone.length-4)}`);
-        res.json({ success: true, message: 'OTP sent' });
+        res.json({ success: true, message: 'OTP sent successfully' });
 
     } catch (error) {
+        console.error('Send OTP error:', error);
         res.status(500).json({ success: false, error: 'Failed to send OTP' });
     }
 });
@@ -144,7 +167,7 @@ app.post('/api/verify-otp', (req, res) => {
 
     if (record.otp === otp) {
         otpStore.delete(phone);
-        res.json({ success: true, message: 'Verified' });
+        res.json({ success: true, message: 'OTP verified successfully' });
     } else {
         res.status(400).json({ 
             success: false, 
@@ -180,7 +203,8 @@ app.get('/api/status', (req, res) => {
     res.json({
         connected: isConnected,
         qr: currentQR,
-        activeOtps: otpStore.size
+        activeOtps: otpStore.size,
+        reconnectAttempts: reconnectAttempts
     });
 });
 
@@ -189,20 +213,20 @@ app.get('/api/qr', (req, res) => {
     if (currentQR) {
         res.json({ success: true, qr: currentQR });
     } else if (isConnected) {
-        res.json({ success: true, message: 'Already connected' });
+        res.json({ success: true, message: 'Already connected', connected: true });
     } else {
-        res.json({ success: false, message: 'No QR available' });
+        res.json({ success: false, message: 'QR not available yet. Check logs or wait...' });
     }
 });
 
 // ================ MAIN PAGE ================
-// HTML file serve karo
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`📱 Open: https://optosystm-2cfc9fe49097.herokuapp.com`);
-    console.log(`📡 API endpoints: /api/send-otp, /api/verify-otp, /api/status, /api/qr`);
+    console.log(`\n🚀 ==================================`);
+    console.log(`🚀 OTP System running on port ${PORT}`);
+    console.log(`🚀 Open: https://optosystm-2cfc9fe49097.herokuapp.com`);
+    console.log(`🚀 ==================================\n`);
 });
