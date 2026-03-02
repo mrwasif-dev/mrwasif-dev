@@ -4,6 +4,7 @@ const { Boom } = require('@hapi/boom');
 const cors = require('cors');
 const qrcode = require('qrcode-terminal');
 const pino = require('pino');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,6 +12,7 @@ const PORT = process.env.PORT || 3000;
 // ================ MIDDLEWARE ================
 app.use(cors({ origin: '*' }));
 app.use(express.json());
+app.use(express.static('public')); // HTML files yahan se serve hongi
 
 // ================ STORES ================
 const otpStore = new Map();
@@ -81,7 +83,7 @@ function validatePhone(phone) {
 // ================ API ENDPOINTS ================
 
 // 1. SEND OTP
-app.post('/send-otp', async (req, res) => {
+app.post('/api/send-otp', async (req, res) => {
     try {
         const { phone, name } = req.body;
 
@@ -110,15 +112,16 @@ app.post('/send-otp', async (req, res) => {
             text: `🔐 *${name || 'User'}*, your OTP is: *${otp}*\nValid for 5 minutes.` 
         });
 
+        console.log(`✅ OTP sent to ${phone.substring(0,4)}****${phone.substring(phone.length-4)}`);
         res.json({ success: true, message: 'OTP sent' });
 
     } catch (error) {
-        res.status(500).json({ success: false, error: 'Failed' });
+        res.status(500).json({ success: false, error: 'Failed to send OTP' });
     }
 });
 
 // 2. VERIFY OTP
-app.post('/verify-otp', (req, res) => {
+app.post('/api/verify-otp', (req, res) => {
     const { phone, otp } = req.body;
     const record = otpStore.get(phone);
 
@@ -133,7 +136,7 @@ app.post('/verify-otp', (req, res) => {
 
     if (record.attempts >= 3) {
         otpStore.delete(phone);
-        return res.status(400).json({ success: false, error: 'Max attempts' });
+        return res.status(400).json({ success: false, error: 'Max attempts exceeded' });
     }
 
     record.attempts++;
@@ -143,12 +146,16 @@ app.post('/verify-otp', (req, res) => {
         otpStore.delete(phone);
         res.json({ success: true, message: 'Verified' });
     } else {
-        res.status(400).json({ success: false, error: 'Invalid OTP', attemptsLeft: 3 - record.attempts });
+        res.status(400).json({ 
+            success: false, 
+            error: 'Invalid OTP', 
+            attemptsLeft: 3 - record.attempts 
+        });
     }
 });
 
 // 3. RESEND OTP
-app.post('/resend-otp', async (req, res) => {
+app.post('/api/resend-otp', async (req, res) => {
     const { phone } = req.body;
     const record = otpStore.get(phone);
 
@@ -169,7 +176,7 @@ app.post('/resend-otp', async (req, res) => {
 });
 
 // 4. STATUS
-app.get('/status', (req, res) => {
+app.get('/api/status', (req, res) => {
     res.json({
         connected: isConnected,
         qr: currentQR,
@@ -178,7 +185,7 @@ app.get('/status', (req, res) => {
 });
 
 // 5. QR
-app.get('/qr', (req, res) => {
+app.get('/api/qr', (req, res) => {
     if (currentQR) {
         res.json({ success: true, qr: currentQR });
     } else if (isConnected) {
@@ -188,14 +195,14 @@ app.get('/qr', (req, res) => {
     }
 });
 
-// 6. HOME
+// ================ MAIN PAGE ================
+// HTML file serve karo
 app.get('/', (req, res) => {
-    res.json({
-        status: isConnected ? 'connected' : 'disconnected',
-        endpoints: ['/send-otp', '/verify-otp', '/resend-otp', '/status', '/qr']
-    });
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`📱 Open: https://optosystm-2cfc9fe49097.herokuapp.com`);
+    console.log(`📡 API endpoints: /api/send-otp, /api/verify-otp, /api/status, /api/qr`);
 });
