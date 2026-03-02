@@ -152,4 +152,68 @@ app.post('/send-otp', async (req, res) => {
 
 app.post('/verify-otp', async (req, res) => {
     try {
-        const { phoneNumber
+        const { phoneNumber, otp } = req.body;
+        
+        const otpRecord = await OTP.findOne({
+            phoneNumber,
+            otp,
+            verified: false,
+            expiresAt: { $gt: new Date() }
+        });
+        
+        if (!otpRecord) {
+            return res.status(400).json({ error: 'Invalid or expired OTP' });
+        }
+        
+        otpRecord.verified = true;
+        await otpRecord.save();
+        
+        res.json({ success: true, message: 'OTP verified' });
+    } catch (error) {
+        res.status(500).json({ error: 'Verification failed' });
+    }
+});
+
+app.get('/recent-otps', async (req, res) => {
+    try {
+        const otps = await OTP.find()
+            .sort({ createdAt: -1 })
+            .limit(10);
+        res.json({ otps });
+    } catch (error) {
+        res.json({ otps: [] });
+    }
+});
+
+app.get('/otp/:id', async (req, res) => {
+    try {
+        const otp = await OTP.findById(req.params.id);
+        if (!otp) {
+            return res.status(404).json({ error: 'OTP not found' });
+        }
+        res.json({ otp });
+    } catch (error) {
+        res.status(500).json({ error: 'Error fetching OTP' });
+    }
+});
+
+app.delete('/otp/:id', async (req, res) => {
+    try {
+        await OTP.findByIdAndDelete(req.params.id);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Error deleting OTP' });
+    }
+});
+
+// Serve HTML page
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Start server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+    connectWhatsApp();
+});
