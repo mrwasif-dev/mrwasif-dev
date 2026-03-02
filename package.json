@@ -1,7 +1,7 @@
 {
-  "name": "whatsapp-otp-api",
+  "name": "whatsapp-otp-system",
   "version": "1.0.0",
-  "description": "WhatsApp OTP API",
+  "description": "Complete WhatsApp OTP System",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
