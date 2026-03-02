@@ -1,14 +1,14 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>WhatsApp QR Connector</title>
+    <title>WhatsApp OTP System</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            font-family: system-ui, -apple-system, sans-serif;
+            font-family: system-ui, sans-serif;
         }
         body {
             background: #075e54;
@@ -21,22 +21,44 @@
         .card {
             background: white;
             width: 100%;
-            max-width: 450px;
+            max-width: 500px;
             border-radius: 30px;
-            padding: 30px 20px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+            padding: 25px;
         }
         .header {
             text-align: center;
             margin-bottom: 25px;
         }
         .header i {
-            font-size: 60px;
+            font-size: 50px;
             color: #25d366;
             background: #dcf8c6;
             padding: 15px;
             border-radius: 50%;
-            margin-bottom: 10px;
+        }
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .tab {
+            flex: 1;
+            padding: 12px;
+            background: #f0f2f4;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .tab.active {
+            background: #25d366;
+            color: white;
+        }
+        .section {
+            display: none;
+        }
+        .section.active {
+            display: block;
         }
         .status-box {
             background: #f0f2f4;
@@ -48,17 +70,12 @@
         .connected { color: #25d366; font-weight: bold; }
         .disconnected { color: #dc3545; font-weight: bold; }
         .qr-box {
-            background: white;
             border: 2px dashed #25d366;
             border-radius: 15px;
-            padding: 30px;
+            padding: 20px;
             text-align: center;
             margin: 20px 0;
-            min-height: 280px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            min-height: 200px;
         }
         #qrImage {
             max-width: 200px;
@@ -70,33 +87,37 @@
             color: white;
             border: none;
             padding: 15px;
-            border-radius: 15px;
-            font-size: 16px;
-            font-weight: bold;
+            border-radius: 12px;
             width: 100%;
             margin: 8px 0;
             cursor: pointer;
+            font-weight: bold;
         }
-        .btn:hover {
+        .btn.secondary {
             background: #075e54;
         }
-        .steps {
-            background: #e8f5e9;
+        input {
+            width: 100%;
             padding: 15px;
-            border-radius: 15px;
-            margin-top: 15px;
-            font-size: 14px;
+            margin: 8px 0;
+            border: 2px solid #ddd;
+            border-radius: 12px;
         }
-        .step {
-            padding: 5px 0;
-        }
-        .api-url {
-            background: #f0f0f0;
+        .message {
             padding: 10px;
             border-radius: 8px;
-            font-size: 12px;
-            word-break: break-all;
-            margin-top: 15px;
+            margin: 10px 0;
+            display: none;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            display: block;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            display: block;
         }
     </style>
 </head>
@@ -107,54 +128,70 @@
             <h2>WhatsApp OTP System</h2>
         </div>
 
-        <!-- Status -->
-        <div class="status-box" id="statusBox">
-            <div id="statusText" class="disconnected">Checking...</div>
-            <div id="statusInfo" style="font-size: 13px; margin-top: 5px;"></div>
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('qr')">📱 QR</button>
+            <button class="tab" onclick="showTab('otp')">🔐 OTP Test</button>
         </div>
 
-        <!-- QR Code -->
-        <div class="qr-box" id="qrBox">
-            <div id="qrPlaceholder">
-                <i class="fas fa-qrcode" style="font-size: 50px; color: #ccc;"></i>
-                <p style="margin-top: 10px;">No QR available</p>
+        <!-- QR Section -->
+        <div id="qrSection" class="section active">
+            <div class="status-box" id="statusBox">
+                <div id="statusText" class="disconnected">Checking...</div>
+                <div id="statusInfo" style="font-size: 13px; margin-top: 5px;"></div>
             </div>
-            <img id="qrImage" src="" alt="QR Code">
+
+            <div class="qr-box">
+                <div id="qrPlaceholder">
+                    <i class="fas fa-qrcode" style="font-size: 40px; color: #ccc;"></i>
+                    <p>No QR available</p>
+                </div>
+                <img id="qrImage" src="" alt="QR">
+            </div>
+
+            <button class="btn" onclick="getQR()">📸 Get QR Code</button>
+            <button class="btn secondary" onclick="checkStatus()">🔄 Refresh</button>
         </div>
 
-        <!-- Buttons -->
-        <button class="btn" onclick="getQR()">
-            <i class="fas fa-qrcode"></i> Get QR Code
-        </button>
-        
-        <button class="btn" onclick="checkStatus()" style="background: #075e54;">
-            <i class="fas fa-sync-alt"></i> Refresh Status
-        </button>
+        <!-- OTP Test Section -->
+        <div id="otpSection" class="section">
+            <h3>Send OTP</h3>
+            <input type="text" id="phone" placeholder="Phone: 923001234567">
+            <input type="text" id="name" placeholder="Name">
+            <button class="btn" onclick="sendOTP()">📤 Send OTP</button>
 
-        <!-- Steps -->
-        <div class="steps">
-            <div class="step">1️⃣ Click "Get QR Code"</div>
-            <div class="step">2️⃣ Open WhatsApp → Linked Devices</div>
-            <div class="step">3️⃣ Scan QR code</div>
-            <div class="step">4️⃣ Status will show "Connected"</div>
+            <h3 style="margin-top: 20px;">Verify OTP</h3>
+            <input type="text" id="verifyPhone" placeholder="Phone">
+            <input type="text" id="otp" placeholder="OTP Code">
+            <button class="btn secondary" onclick="verifyOTP()">✅ Verify</button>
+
+            <div id="messageBox" class="message"></div>
         </div>
 
-        <!-- API URL -->
-        <div class="api-url" id="apiUrl">
-            Loading...
+        <div style="margin-top: 15px; font-size: 12px; text-align: center; color: #666;">
+            API: https://optosystm-2cfc9fe49097.herokuapp.com
         </div>
     </div>
 
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 
     <script>
-        // ========== YOUR HEROKU URL ==========
         const API_URL = 'https://optosystm-2cfc9fe49097.herokuapp.com';
-        
-        document.getElementById('apiUrl').innerHTML = 
-            '<i class="fas fa-link"></i> API: ' + API_URL;
 
-        // ========== CHECK STATUS ==========
+        function showTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            
+            if (tab === 'qr') {
+                document.querySelector('.tab').classList.add('active');
+                document.getElementById('qrSection').classList.add('active');
+            } else {
+                document.querySelectorAll('.tab')[1].classList.add('active');
+                document.getElementById('otpSection').classList.add('active');
+            }
+        }
+
+        // ========== STATUS ==========
         async function checkStatus() {
             try {
                 const res = await fetch(API_URL + '/status');
@@ -166,42 +203,100 @@
                 if (data.connected) {
                     statusText.innerHTML = '✅ Connected';
                     statusText.className = 'connected';
-                    statusInfo.innerHTML = `Active OTPs: ${data.active}`;
+                    statusInfo.innerHTML = `Active OTPs: ${data.activeOtps}`;
                 } else {
                     statusText.innerHTML = '❌ Disconnected';
                     statusText.className = 'disconnected';
-                    statusInfo.innerHTML = data.qr ? 'QR ready - Click Get QR' : 'Waiting for QR...';
+                    statusInfo.innerHTML = data.qr ? 'QR ready' : 'Waiting...';
                 }
             } catch (error) {
                 document.getElementById('statusText').innerHTML = '❌ Server Error';
             }
         }
 
-        // ========== GET QR CODE ==========
+        // ========== QR CODE ==========
         async function getQR() {
             try {
                 const res = await fetch(API_URL + '/qr');
                 const data = await res.json();
                 
-                const qrImage = document.getElementById('qrImage');
-                const qrPlaceholder = document.getElementById('qrPlaceholder');
-                
                 if (data.success && data.qr) {
-                    qrImage.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data.qr)}`;
-                    qrImage.style.display = 'block';
-                    qrPlaceholder.style.display = 'none';
-                } else if (data.message === 'Connected') {
-                    alert('WhatsApp already connected!');
+                    document.getElementById('qrImage').src = 
+                        `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data.qr)}`;
+                    document.getElementById('qrImage').style.display = 'block';
+                    document.getElementById('qrPlaceholder').style.display = 'none';
                 } else {
-                    alert('No QR available. Try again.');
+                    alert(data.message || 'No QR');
                 }
             } catch (error) {
-                alert('Error getting QR');
+                alert('Error');
             }
         }
 
-        // ========== AUTO REFRESH ==========
-        setInterval(checkStatus, 3000);
+        // ========== SEND OTP ==========
+        async function sendOTP() {
+            const phone = document.getElementById('phone').value;
+            const name = document.getElementById('name').value;
+
+            if (!phone) {
+                showMessage('Phone required', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch(API_URL + '/send-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone, name })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    showMessage('✅ OTP sent to WhatsApp!', 'success');
+                    document.getElementById('verifyPhone').value = phone;
+                } else {
+                    showMessage('❌ ' + (data.error || 'Failed'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error', 'error');
+            }
+        }
+
+        // ========== VERIFY OTP ==========
+        async function verifyOTP() {
+            const phone = document.getElementById('verifyPhone').value;
+            const otp = document.getElementById('otp').value;
+
+            if (!phone || !otp) {
+                showMessage('Phone and OTP required', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch(API_URL + '/verify-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone, otp })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    showMessage('✅ OTP Verified!', 'success');
+                } else {
+                    showMessage('❌ ' + (data.error || 'Invalid'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error', 'error');
+            }
+        }
+
+        function showMessage(msg, type) {
+            const box = document.getElementById('messageBox');
+            box.innerHTML = msg;
+            box.className = 'message ' + type;
+        }
+
+        setInterval(checkStatus, 5000);
         window.onload = checkStatus;
     </script>
 </body>
