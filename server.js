@@ -1,232 +1,155 @@
 const express = require('express');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
-const { Boom } = require('@hapi/boom');
-const cors = require('cors');
-const qrcode = require('qrcode-terminal');
-const pino = require('pino');
 const path = require('path');
-const fs = require('fs');
+const mongoose = require('mongoose');
+const dotenv = require('dotenv');
+const makeWASocket = require('@whiskeysockets/baileys').default;
+const { useMultiFileAuthState } = require('@whiskeysockets/baileys');
+const qrcode = require('qrcode');
+
+dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-// ================ MIDDLEWARE ================
-app.use(cors({ origin: '*' }));
+// Middleware
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
-// ================ STORES ================
-const otpStore = new Map();
+// MongoDB Connection
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/otp_system', {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+});
+
+// OTP Schema
+const otpSchema = new mongoose.Schema({
+    phoneNumber: String,
+    otp: String,
+    expiresAt: Date,
+    verified: { type: Boolean, default: false },
+    createdAt: { type: Date, default: Date.now }
+});
+
+const OTP = mongoose.model('OTP', otpSchema);
+
+// WhatsApp Connection
 let sock = null;
-let isConnected = false;
 let currentQR = null;
-let reconnectAttempts = 0;
+let connectionStatus = 'disconnected';
 
-// ================ SESSIONS FOLDER ================
-const SESSION_DIR = './sessions';
-if (!fs.existsSync(SESSION_DIR)) {
-    fs.mkdirSync(SESSION_DIR, { recursive: true });
-}
-
-// ================ WHATSAPP CLIENT ================
 async function connectWhatsApp() {
-    try {
-        console.log('🔄 Starting WhatsApp connection...');
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+    
+    sock = makeWASocket({
+        printQRInTerminal: true,
+        auth: state,
+        logger: require('pino')({ level: 'silent' })
+    });
+
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, qr } = update;
         
-        const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
+        if (qr) {
+            connectionStatus = 'connecting';
+            // Generate QR code as data URL
+            currentQR = await qrcode.toDataURL(qr);
+        }
         
-        sock = makeWASocket({
-            auth: state,
-            logger: pino({ level: 'silent' }),
-            printQRInTerminal: true,
-            browser: ['OTP System', 'Chrome', '1.0.0']
-        });
+        if (connection === 'open') {
+            connectionStatus = 'connected';
+            currentQR = null;
+            console.log('✅ WhatsApp Connected!');
+        }
+        
+        if (connection === 'close') {
+            connectionStatus = 'disconnected';
+            currentQR = null;
+            console.log('❌ Connection closed. Reconnecting...');
+            connectWhatsApp();
+        }
+    });
 
-        sock.ev.on('creds.update', saveCreds);
-
-        sock.ev.on('connection.update', (update) => {
-            const { connection, lastDisconnect, qr } = update;
-            
-            if (qr) {
-                currentQR = qr;
-                reconnectAttempts = 0;
-                console.log('\n📱 ========== SCAN THIS QR CODE ==========\n');
-                qrcode.generate(qr, { small: true });
-                console.log('\n📱 ======================================\n');
-                console.log('👉 Open WhatsApp > Linked Devices > Scan QR\n');
-            }
-
-            if (connection === 'open') {
-                isConnected = true;
-                currentQR = null;
-                reconnectAttempts = 0;
-                console.log('✅ WhatsApp Connected Successfully!');
-                console.log('🚀 OTP System is ready to use');
-            }
-
-            if (connection === 'close') {
-                isConnected = false;
-                const shouldReconnect = (lastDisconnect.error instanceof Boom) 
-                    ? lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut
-                    : true;
-                
-                if (shouldReconnect) {
-                    reconnectAttempts++;
-                    const delay = Math.min(1000 * reconnectAttempts, 30000);
-                    console.log(`❌ Disconnected. Reconnecting in ${delay/1000}s... (Attempt ${reconnectAttempts})`);
-                    setTimeout(connectWhatsApp, delay);
-                } else {
-                    console.log('❌ Logged out. Delete sessions folder and redeploy.');
-                }
-            }
-        });
-
-    } catch (error) {
-        console.error('Connection error:', error);
-        setTimeout(connectWhatsApp, 5000);
-    }
+    sock.ev.on('creds.update', saveCreds);
 }
 
-// Start WhatsApp
-connectWhatsApp();
-
-// ================ OTP FUNCTIONS ================
+// Generate OTP
 function generateOTP() {
     return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-function validatePhone(phone) {
-    return /^92[0-9]{10}$/.test(phone);
-}
-
-// ================ API ENDPOINTS ================
-
-// 1. SEND OTP
-app.post('/api/send-otp', async (req, res) => {
-    try {
-        const { phone, name } = req.body;
-
-        if (!phone) {
-            return res.status(400).json({ success: false, error: 'Phone required' });
-        }
-
-        if (!validatePhone(phone)) {
-            return res.status(400).json({ success: false, error: 'Format: 923001234567' });
-        }
-
-        if (!isConnected || !sock) {
-            return res.status(503).json({ 
-                success: false, 
-                error: 'WhatsApp not connected. Scan QR first.' 
-            });
-        }
-
-        const otp = generateOTP();
-        otpStore.set(phone, {
-            otp,
-            expiry: Date.now() + 300000,
-            attempts: 0,
-            name: name || 'User'
-        });
-
-        const jid = `${phone}@s.whatsapp.net`;
-        await sock.sendMessage(jid, { 
-            text: `🔐 *${name || 'User'}*, your verification code is: *${otp}*\n\nValid for 5 minutes.` 
-        });
-
-        console.log(`✅ OTP sent to ${phone.substring(0,4)}****${phone.substring(phone.length-4)}`);
-        res.json({ success: true, message: 'OTP sent successfully' });
-
-    } catch (error) {
-        console.error('Send OTP error:', error);
-        res.status(500).json({ success: false, error: 'Failed to send OTP' });
-    }
+// API Routes
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok' });
 });
 
-// 2. VERIFY OTP
-app.post('/api/verify-otp', (req, res) => {
-    const { phone, otp } = req.body;
-    const record = otpStore.get(phone);
-
-    if (!record) {
-        return res.status(400).json({ success: false, error: 'No OTP found' });
-    }
-
-    if (Date.now() > record.expiry) {
-        otpStore.delete(phone);
-        return res.status(400).json({ success: false, error: 'OTP expired' });
-    }
-
-    if (record.attempts >= 3) {
-        otpStore.delete(phone);
-        return res.status(400).json({ success: false, error: 'Max attempts exceeded' });
-    }
-
-    record.attempts++;
-    otpStore.set(phone, record);
-
-    if (record.otp === otp) {
-        otpStore.delete(phone);
-        res.json({ success: true, message: 'OTP verified successfully' });
-    } else {
-        res.status(400).json({ 
-            success: false, 
-            error: 'Invalid OTP', 
-            attemptsLeft: 3 - record.attempts 
-        });
-    }
-});
-
-// 3. RESEND OTP
-app.post('/api/resend-otp', async (req, res) => {
-    const { phone } = req.body;
-    const record = otpStore.get(phone);
-
-    if (!record) {
-        return res.status(400).json({ success: false, error: 'No OTP found' });
-    }
-
-    const newOTP = generateOTP();
-    record.otp = newOTP;
-    record.expiry = Date.now() + 300000;
-    record.attempts = 0;
-    otpStore.set(phone, record);
-
-    const jid = `${phone}@s.whatsapp.net`;
-    await sock.sendMessage(jid, { text: `🔄 New OTP: *${newOTP}*` });
-
-    res.json({ success: true, message: 'OTP resent' });
-});
-
-// 4. STATUS
-app.get('/api/status', (req, res) => {
+app.get('/whatsapp-status', (req, res) => {
     res.json({
-        connected: isConnected,
-        qr: currentQR,
-        activeOtps: otpStore.size,
-        reconnectAttempts: reconnectAttempts
+        connected: connectionStatus === 'connected',
+        status: connectionStatus,
+        user: sock?.user || null
     });
 });
 
-// 5. QR
-app.get('/api/qr', (req, res) => {
-    if (currentQR) {
-        res.json({ success: true, qr: currentQR });
-    } else if (isConnected) {
-        res.json({ success: true, message: 'Already connected', connected: true });
-    } else {
-        res.json({ success: false, message: 'QR not available yet. Check logs or wait...' });
+app.get('/qr-code', (req, res) => {
+    res.json({ qr: currentQR });
+});
+
+app.post('/refresh-qr', (req, res) => {
+    // Force QR refresh by restarting connection
+    if (sock) {
+        sock.end();
+    }
+    connectWhatsApp();
+    res.json({ success: true });
+});
+
+app.post('/disconnect-whatsapp', (req, res) => {
+    if (sock) {
+        sock.end();
+        connectionStatus = 'disconnected';
+        currentQR = null;
+    }
+    res.json({ success: true });
+});
+
+app.post('/send-otp', async (req, res) => {
+    try {
+        const { phoneNumber } = req.body;
+        
+        if (!phoneNumber) {
+            return res.status(400).json({ error: 'Phone number required' });
+        }
+        
+        if (connectionStatus !== 'connected') {
+            return res.status(503).json({ error: 'WhatsApp not connected' });
+        }
+        
+        const otp = generateOTP();
+        
+        // Save to database
+        const otpRecord = new OTP({
+            phoneNumber,
+            otp,
+            expiresAt: new Date(Date.now() + 5 * 60000) // 5 minutes
+        });
+        await otpRecord.save();
+        
+        // Send WhatsApp message
+        const formattedNumber = `${phoneNumber}@s.whatsapp.net`;
+        const message = `🔐 *Your OTP Code*\n\n` +
+            `Code: *${otp}*\n\n` +
+            `⏰ Valid for 5 minutes\n` +
+            `🔒 Don't share this code with anyone`;
+        
+        await sock.sendMessage(formattedNumber, { text: message });
+        
+        res.json({ success: true, message: 'OTP sent' });
+    } catch (error) {
+        console.error('Error sending OTP:', error);
+        res.status(500).json({ error: 'Failed to send OTP' });
     }
 });
 
-// ================ MAIN PAGE ================
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-app.listen(PORT, () => {
-    console.log(`\n🚀 ==================================`);
-    console.log(`🚀 OTP System running on port ${PORT}`);
-    console.log(`🚀 Open: https://optosystm-2cfc9fe49097.herokuapp.com`);
-    console.log(`🚀 ==================================\n`);
-});
+app.post('/verify-otp', async (req, res) => {
+    try {
+        const { phoneNumber
