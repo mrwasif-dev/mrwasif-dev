@@ -4,7 +4,6 @@ const { Boom } = require('@hapi/boom');
 const cors = require('cors');
 const qrcode = require('qrcode-terminal');
 const pino = require('pino');
-const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -14,7 +13,7 @@ app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 // ================ STORES ================
-const otpStore = new Map();  // OTP store karo
+const otpStore = new Map();
 let sock = null;
 let isConnected = false;
 let currentQR = null;
@@ -68,7 +67,6 @@ async function connectWhatsApp() {
     }
 }
 
-// Start connection
 connectWhatsApp();
 
 // ================ OTP FUNCTIONS ================
@@ -82,236 +80,122 @@ function validatePhone(phone) {
 
 // ================ API ENDPOINTS ================
 
-/**
- * 1. SEND OTP - WhatsApp par OTP bhejo
- * POST /send-otp
- * Body: { phone: "923001234567", name: "User" }
- */
+// 1. SEND OTP
 app.post('/send-otp', async (req, res) => {
     try {
         const { phone, name } = req.body;
 
-        // Validation
         if (!phone) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'Phone number required' 
-            });
+            return res.status(400).json({ success: false, error: 'Phone required' });
         }
 
         if (!validatePhone(phone)) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'Invalid format. Use: 923001234567' 
-            });
+            return res.status(400).json({ success: false, error: 'Format: 923001234567' });
         }
 
         if (!isConnected || !sock) {
-            return res.status(503).json({ 
-                success: false, 
-                error: 'WhatsApp not connected. Scan QR first.' 
-            });
+            return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
         }
 
-        // Generate OTP
         const otp = generateOTP();
-        const expiry = Date.now() + 5 * 60 * 1000; // 5 minutes
-
-        // Store OTP
         otpStore.set(phone, {
-            otp: otp,
-            expiry: expiry,
+            otp,
+            expiry: Date.now() + 300000,
             attempts: 0,
             name: name || 'User'
         });
 
-        // Send via WhatsApp
         const jid = `${phone}@s.whatsapp.net`;
-        const message = `🔐 *${name || 'User'}*, your verification code is:\n\n*${otp}*\n\nThis code will expire in 5 minutes.`;
-        
-        await sock.sendMessage(jid, { text: message });
-
-        console.log(`✅ OTP sent to ${phone.substring(0, 4)}****${phone.substring(phone.length - 4)}`);
-
-        // Success response (OTP nahi bhej rahe response mein)
-        res.json({ 
-            success: true, 
-            message: 'OTP sent successfully',
-            expiresIn: 300 // seconds
+        await sock.sendMessage(jid, { 
+            text: `🔐 *${name || 'User'}*, your OTP is: *${otp}*\nValid for 5 minutes.` 
         });
+
+        res.json({ success: true, message: 'OTP sent' });
 
     } catch (error) {
-        console.error('Send OTP error:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Failed to send OTP' 
-        });
+        res.status(500).json({ success: false, error: 'Failed' });
     }
 });
 
-/**
- * 2. VERIFY OTP - OTP check karo
- * POST /verify-otp
- * Body: { phone: "923001234567", otp: "123456" }
- */
+// 2. VERIFY OTP
 app.post('/verify-otp', (req, res) => {
-    try {
-        const { phone, otp } = req.body;
+    const { phone, otp } = req.body;
+    const record = otpStore.get(phone);
 
-        if (!phone || !otp) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'Phone and OTP required' 
-            });
-        }
+    if (!record) {
+        return res.status(400).json({ success: false, error: 'No OTP found' });
+    }
 
-        const record = otpStore.get(phone);
+    if (Date.now() > record.expiry) {
+        otpStore.delete(phone);
+        return res.status(400).json({ success: false, error: 'OTP expired' });
+    }
 
-        // Check if OTP exists
-        if (!record) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'No OTP found. Request new one.' 
-            });
-        }
+    if (record.attempts >= 3) {
+        otpStore.delete(phone);
+        return res.status(400).json({ success: false, error: 'Max attempts' });
+    }
 
-        // Check expiry
-        if (Date.now() > record.expiry) {
-            otpStore.delete(phone);
-            return res.status(400).json({ 
-                success: false, 
-                error: 'OTP expired' 
-            });
-        }
+    record.attempts++;
+    otpStore.set(phone, record);
 
-        // Check attempts
-        if (record.attempts >= 3) {
-            otpStore.delete(phone);
-            return res.status(400).json({ 
-                success: false, 
-                error: 'Maximum attempts exceeded' 
-            });
-        }
-
-        // Increment attempts
-        record.attempts++;
-        otpStore.set(phone, record);
-
-        // Verify OTP
-        if (record.otp === otp) {
-            otpStore.delete(phone); // OTP verify hone ke baad delete
-            console.log(`✅ Verified: ${phone.substring(0, 4)}****${phone.substring(phone.length - 4)}`);
-            res.json({ 
-                success: true, 
-                message: 'OTP verified successfully' 
-            });
-        } else {
-            res.status(400).json({ 
-                success: false, 
-                error: 'Invalid OTP',
-                attemptsLeft: 3 - record.attempts
-            });
-        }
-
-    } catch (error) {
-        console.error('Verify error:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Verification failed' 
-        });
+    if (record.otp === otp) {
+        otpStore.delete(phone);
+        res.json({ success: true, message: 'Verified' });
+    } else {
+        res.status(400).json({ success: false, error: 'Invalid OTP', attemptsLeft: 3 - record.attempts });
     }
 });
 
-/**
- * 3. RESEND OTP - Dobara OTP bhejo
- * POST /resend-otp
- * Body: { phone: "923001234567" }
- */
+// 3. RESEND OTP
 app.post('/resend-otp', async (req, res) => {
-    try {
-        const { phone } = req.body;
+    const { phone } = req.body;
+    const record = otpStore.get(phone);
 
-        const record = otpStore.get(phone);
-        if (!record) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'Request new OTP first' 
-            });
-        }
-
-        // Generate new OTP
-        const newOTP = generateOTP();
-        record.otp = newOTP;
-        record.expiry = Date.now() + 5 * 60 * 1000;
-        record.attempts = 0;
-        otpStore.set(phone, record);
-
-        // Send via WhatsApp
-        const jid = `${phone}@s.whatsapp.net`;
-        const message = `🔄 Resent OTP: *${newOTP}*\n\nValid for 5 minutes.`;
-        await sock.sendMessage(jid, { text: message });
-
-        res.json({ 
-            success: true, 
-            message: 'OTP resent' 
-        });
-
-    } catch (error) {
-        res.status(500).json({ 
-            success: false, 
-            error: 'Failed to resend' 
-        });
+    if (!record) {
+        return res.status(400).json({ success: false, error: 'No OTP found' });
     }
+
+    const newOTP = generateOTP();
+    record.otp = newOTP;
+    record.expiry = Date.now() + 300000;
+    record.attempts = 0;
+    otpStore.set(phone, record);
+
+    const jid = `${phone}@s.whatsapp.net`;
+    await sock.sendMessage(jid, { text: `🔄 New OTP: *${newOTP}*` });
+
+    res.json({ success: true, message: 'OTP resent' });
 });
 
-/**
- * 4. STATUS - Connection status check
- * GET /status
- */
+// 4. STATUS
 app.get('/status', (req, res) => {
     res.json({
         connected: isConnected,
         qr: currentQR,
-        activeOtps: otpStore.size,
-        uptime: process.uptime()
+        activeOtps: otpStore.size
     });
 });
 
-/**
- * 5. QR CODE - Get QR for scanning
- * GET /qr
- */
+// 5. QR
 app.get('/qr', (req, res) => {
     if (currentQR) {
         res.json({ success: true, qr: currentQR });
     } else if (isConnected) {
         res.json({ success: true, message: 'Already connected' });
     } else {
-        res.json({ success: false, message: 'QR not available' });
+        res.json({ success: false, message: 'No QR available' });
     }
 });
 
-/**
- * 6. HOME - API info
- * GET /
- */
+// 6. HOME
 app.get('/', (req, res) => {
     res.json({
-        name: 'WhatsApp OTP API',
-        version: '2.0',
-        status: isConnected ? '✅ Connected' : '❌ Disconnected',
-        endpoints: {
-            'POST /send-otp': 'Send OTP to WhatsApp',
-            'POST /verify-otp': 'Verify OTP',
-            'POST /resend-otp': 'Resend OTP',
-            'GET /status': 'Check connection',
-            'GET /qr': 'Get QR code'
-        }
+        status: isConnected ? 'connected' : 'disconnected',
+        endpoints: ['/send-otp', '/verify-otp', '/resend-otp', '/status', '/qr']
     });
 });
 
-// Start server
 app.listen(PORT, () => {
-    console.log(`\n🚀 OTP API Server running on port ${PORT}`);
-    console.log(`📱 WhatsApp status: ${isConnected ? 'Connected' : 'Disconnected'}`);
+    console.log(`🚀 Server running on port ${PORT}`);
 });
