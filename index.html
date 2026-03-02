@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WhatsApp QR Connector</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(145deg, #075e54, #128c7e);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 16px;
+        }
+        
+        .container {
+            background: white;
+            width: 100%;
+            max-width: 500px;
+            border-radius: 30px;
+            padding: 30px 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+        
+        .header i {
+            font-size: 60px;
+            color: #25d366;
+            background: #dcf8c6;
+            padding: 15px;
+            border-radius: 50%;
+            margin-bottom: 15px;
+        }
+        
+        .header h1 {
+            color: #075e54;
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+        
+        .header p {
+            color: #667781;
+            font-size: 14px;
+        }
+        
+        .status-card {
+            background: #f0f2f4;
+            border-radius: 20px;
+            padding: 20px;
+            margin-bottom: 25px;
+            text-align: center;
+        }
+        
+        .connected {
+            color: #25d366;
+            font-weight: bold;
+            font-size: 18px;
+        }
+        
+        .disconnected {
+            color: #f15c6f;
+            font-weight: bold;
+            font-size: 18px;
+        }
+        
+        .qr-container {
+            background: white;
+            border: 3px solid #25d366;
+            border-radius: 20px;
+            padding: 30px;
+            margin: 20px 0;
+            text-align: center;
+            min-height: 300px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        #qrImage {
+            max-width: 250px;
+            width: 100%;
+            height: auto;
+            border-radius: 10px;
+            display: none;
+        }
+        
+        .qr-placeholder {
+            color: #999;
+            font-size: 16px;
+        }
+        
+        .qr-loading {
+            display: none;
+            margin: 20px 0;
+        }
+        
+        .loader {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #25d366;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .button {
+            background: #25d366;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 50px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            margin: 10px 0;
+            transition: all 0.3s;
+        }
+        
+        .button:hover {
+            background: #075e54;
+            transform: scale(1.02);
+        }
+        
+        .button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+        
+        .info-box {
+            background: #e8f5e9;
+            border-radius: 15px;
+            padding: 15px;
+            margin: 15px 0;
+            font-size: 14px;
+            color: #075e54;
+        }
+        
+        .info-box i {
+            margin-right: 8px;
+        }
+        
+        .step-guide {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin: 20px 0;
+        }
+        
+        .step {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .step-number {
+            background: #25d366;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        
+        .step-text {
+            color: #333;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            color: #667781;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <i class="fab fa-whatsapp"></i>
+            <h1>WhatsPa OTP API</h1>
+            <p>Connect your WhatsApp to start sending OTPs</p>
+        </div>
+        
+        <!-- Status Card -->
+        <div class="status-card" id="statusCard">
+            <div id="connectionStatus" class="disconnected">⚠️ Disconnected</div>
+            <div id="statusDetail" style="margin-top: 10px; font-size: 14px;">Checking status...</div>
+        </div>
+        
+        <!-- QR Code Container -->
+        <div class="qr-container" id="qrContainer">
+            <div id="qrLoading" class="qr-loading">
+                <div class="loader"></div>
+                <p style="margin-top: 10px;">Loading QR code...</p>
+            </div>
+            
+            <img id="qrImage" src="" alt="WhatsApp QR Code">
+            
+            <div id="qrPlaceholder" class="qr-placeholder">
+                <i class="fas fa-qrcode" style="font-size: 60px; color: #ccc; margin-bottom: 15px;"></i>
+                <p>No QR code available</p>
+            </div>
+        </div>
+        
+        <!-- Action Buttons -->
+        <button class="button" id="refreshBtn" onclick="checkStatus()">
+            <i class="fas fa-sync-alt"></i> Refresh Status
+        </button>
+        
+        <button class="button" id="getQrBtn" onclick="getQRCode()" style="background: #075e54;">
+            <i class="fas fa-qrcode"></i> Get QR Code
+        </button>
+        
+        <!-- Step Guide -->
+        <div class="info-box">
+            <i class="fas fa-info-circle"></i> How to connect:
+        </div>
+        
+        <div class="step-guide">
+            <div class="step">
+                <div class="step-number">1</div>
+                <div class="step-text">Click "Get QR Code" button</div>
+            </div>
+            <div class="step">
+                <div class="step-number">2</div>
+                <div class="step-text">Open WhatsApp on your phone</div>
+            </div>
+            <div class="step">
+                <div class="step-number">3</div>
+                <div class="step-text">Tap Menu (3 dots) > Linked Devices</div>
+            </div>
+            <div class="step">
+                <div class="step-number">4</div>
+                <div class="step-text">Tap "Link a Device" and scan QR</div>
+            </div>
+        </div>
+        
+        <!-- API Info -->
+        <div class="info-box" style="background: #e3f2fd;">
+            <i class="fas fa-code"></i> Your API Base URL:
+            <br>
+            <strong id="apiUrl">https://optosystm-2cfc9fe49097.herokuapp.com</strong>
+        </div>
+        
+        <div class="footer">
+            <i class="fab fa-whatsapp"></i> OTP API System • v2.0
+        </div>
+    </div>
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <script>
+        // ==================== CONFIG ====================
+        const API_URL = 'https://optosystm-2cfc9fe49097.herokuapp.com'; // Tumhara Heroku URL
+        
+        // ==================== CHECK STATUS ====================
+        async function checkStatus() {
+            try {
+                const response = await fetch(`${API_URL}/status`);
+                const data = await response.json();
+                
+                updateUI(data);
+            } catch (error) {
+                document.getElementById('connectionStatus').innerHTML = '❌ Cannot connect to server';
+                document.getElementById('connectionStatus').className = 'disconnected';
+                document.getElementById('statusDetail').innerHTML = 'Server is not responding';
+            }
+        }
+        
+        // ==================== GET QR CODE ====================
+        async function getQRCode() {
+            showLoading(true);
+            
+            try {
+                const response = await fetch(`${API_URL}/qr`);
+                const data = await response.json();
+                
+                if (data.success && data.qr) {
+                    // Convert QR string to image
+                    const qrContainer = document.getElementById('qrContainer');
+                    const qrImage = document.getElementById('qrImage');
+                    
+                    // QR ko image mein convert karo
+                    qrImage.src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(data.qr)}`;
+                    qrImage.style.display = 'block';
+                    
+                    document.getElementById('qrPlaceholder').style.display = 'none';
+                    document.getElementById('qrLoading').style.display = 'none';
+                    
+                    document.getElementById('statusDetail').innerHTML = '📱 Scan this QR with WhatsApp';
+                } else if (data.success && data.message === 'Already connected') {
+                    alert('✅ WhatsApp already connected!');
+                    document.getElementById('qrPlaceholder').innerHTML = '<i class="fas fa-check-circle" style="font-size: 60px; color: #25d366;"></i><p>Already connected</p>';
+                } else {
+                    alert('No QR available. Try again in a few seconds.');
+                }
+            } catch (error) {
+                alert('Error getting QR code');
+            } finally {
+                showLoading(false);
+            }
+        }
+        
+        // ==================== UPDATE UI ====================
+        function updateUI(data) {
+            const statusEl = document.getElementById('connectionStatus');
+            const detailEl = document.getElementById('statusDetail');
+            
+            if (data.whatsapp === 'connected') {
+                statusEl.innerHTML = '✅ Connected';
+                statusEl.className = 'connected';
+                detailEl.innerHTML = `Active OTPs: ${data.activeOtps || 0} | Uptime: ${Math.floor(data.uptime / 60)} mins`;
+                
+                document.getElementById('qrPlaceholder').innerHTML = '<i class="fas fa-check-circle" style="font-size: 60px; color: #25d366;"></i><p>WhatsApp Connected</p>';
+            } else {
+                statusEl.innerHTML = '⚠️ Disconnected';
+                statusEl.className = 'disconnected';
+                
+                if (data.qr) {
+                    detailEl.innerHTML = 'QR code available - Click "Get QR Code"';
+                } else {
+                    detailEl.innerHTML = 'Waiting for QR code...';
+                }
+            }
+        }
+        
+        // ==================== SHOW LOADING ====================
+        function showLoading(show) {
+            const loading = document.getElementById('qrLoading');
+            const placeholder = document.getElementById('qrPlaceholder');
+            const qrImage = document.getElementById('qrImage');
+            
+            if (show) {
+                loading.style.display = 'block';
+                placeholder.style.display = 'none';
+                qrImage.style.display = 'none';
+            } else {
+                loading.style.display = 'none';
+            }
+        }
+        
+        // ==================== AUTO REFRESH ====================
+        setInterval(checkStatus, 5000); // Har 5 second mein status check
+        
+        // ==================== START ====================
+        window.onload = function() {
+            checkStatus();
+        };
+    </script>
+</body>
+</html>
